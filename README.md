@@ -228,8 +228,14 @@ nvim/
   lua/config/options.lua    editor options
   lua/config/keymaps.lua    non-plugin key mappings
   lua/config/lazy.lua       bootstraps the plugin manager
+  lua/config/lsp.lua        language servers, diagnostics, LSP keymaps
   lua/plugins/*.lua         one file per plugin, each returning a spec
 ```
+
+`init.lua` requires `config.lsp` **after** `config.lazy`, and that order is
+load-bearing: `config.lsp` asks blink.cmp for its completion capabilities, and
+those must be advertised before any language server client starts. Swap the two
+and you silently lose snippet support and rich documentation from every server.
 
 Adding a plugin means adding a file to `lua/plugins/`. There is no central
 list to keep in sync -- `lua/config/lazy.lua` imports the whole directory.
@@ -256,6 +262,85 @@ Leader is `<space>`.
 | `<leader>fk` | Search your own keymaps |
 | `<leader>w` / `<leader>q` | Write / quit |
 | `<C-h/j/k/l>` | Move between splits |
+| `gd` / `gD` | Go to definition / declaration |
+| `<leader>lf` | Format buffer (Python always via ruff) |
+| `<leader>ll` | Diagnostics to location list |
+| `<leader>ls` | `:LspServers` -- what is running, what is missing |
+| `<leader>d` | Diagnostics for the current line, floating |
+
+Neovim 0.11+ already ships LSP defaults, and they are not re-bound here:
+
+| Key | Action |
+| --- | --- |
+| `K` | Hover documentation |
+| `grn` | Rename symbol |
+| `gra` | Code action |
+| `grr` | References |
+| `gri` | Implementation |
+| `grt` | Type definition |
+| `gO` | Document symbols |
+| `[d` / `]d` | Previous / next diagnostic |
+| `<C-s>` (insert) | Signature help |
+
+Completion, via blink.cmp:
+
+| Key | Action |
+| --- | --- |
+| `<C-space>` | Open menu / show documentation |
+| `<C-n>` / `<C-p>` | Next / previous item |
+| `<C-y>` | Accept |
+| `<C-e>` | Dismiss |
+| `<Tab>` | Next snippet placeholder |
+
+`<CR>` deliberately does **not** accept a completion, so pressing Enter still
+inserts a newline rather than a suggestion you did not want.
+
+### Language support
+
+| Language | Server | Provides |
+| --- | --- | --- |
+| Python | `basedpyright` | Types, completion, go-to-definition, hover |
+| Python | `ruff` | Linting and formatting |
+| Rust | `rust-analyzer` | Completion, hover, go-to-definition |
+| Lua | `lua-language-server` | Completion and diagnostics, aware of the `vim` API |
+
+Both Python servers attach at once, deliberately -- ruff catches lint and style,
+basedpyright catches type errors. Verified complementary rather than duplicate:
+on a file with two unused imports and a type error, ruff reports the imports and
+basedpyright reports `Operator "+" not supported for types "int" and
+"Literal['...']"`. Because both attach, `<leader>lf` pins Python formatting to
+ruff rather than prompting you to choose every time.
+
+Three design decisions worth knowing:
+
+**No Mason.** It downloads language servers at runtime, which is the single
+component most likely to be blocked on a hardened build. Servers here are
+either bundled in the repo or installed from pip.
+
+**No nvim-lspconfig.** Neovim 0.11 added `vim.lsp.config()` and
+`vim.lsp.enable()`, so four servers are about ten lines each in
+`lua/config/lsp.lua`. One less plugin, and the definitions are readable.
+
+**Every server is optional.** Each is enabled only if its binary resolves, so
+the same config works on a fully equipped machine and on one with nothing but
+Neovim -- a missing server is simply absent, not an error at startup. Run
+`:LspServers` to see what is active, what is missing, and which binary each one
+resolved to.
+
+Bundled binaries are preferred over bare names on PATH, and that ordering
+matters: on a machine with rustup installed, `~/.cargo/bin/rust-analyzer.exe`
+is a *proxy shim* that exists, satisfies `executable()`, and then dies with
+`Unknown binary 'rust-analyzer.exe' in official toolchain` when the component
+was never installed. Preferring the bundled copy sidesteps that.
+
+Paths are passed through `vim.fs.normalize`. Mixed separators are not cosmetic:
+lua-language-server failed to start with `Duplicate channel 'task:1'` until its
+path used consistent separators.
+
+Formatting on save is **off**. `<leader>lf` formats on demand. There is a
+commented-out autocmd at the end of `lua/config/lsp.lua` if you want it
+automatic -- left off because a formatter rewriting a file you did not ask it to
+rewrite is a surprise, especially in a shared repo with its own style settings.
 
 ### External tools
 

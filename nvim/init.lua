@@ -25,6 +25,10 @@ vim.g.have_nerd_font = true
 -- Neovim searches every directory on its runtimepath for a lua/ folder, and
 -- your config directory is on that path, which is why this works with no
 -- setup. Confirm with:  :lua print(vim.o.runtimepath)
+-- Order matters here. config.lazy installs and loads plugins, and config.lsp
+-- asks blink.cmp for its completion capabilities, so the plugin manager has to
+-- have run first. Swap these two and the LSP silently loses snippet support.
 require("config.options")
 require("config.keymaps")
 require("config.lazy")
+require("config.lsp")
