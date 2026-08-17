@@ -58,11 +58,28 @@
     .\setup.ps1 -Update
     Pull the latest repo state and apply it.
 #>
-[CmdletBinding()]
+#
+# PositionalBinding = $false is deliberate and load-bearing. Without it,
+# $InstallRoot is the first positional parameter, so a POSIX-style
+# `.\setup.ps1 --Update` -- which PowerShell does not recognise as a switch --
+# binds "--Update" as a VALUE for it and installs Neovim into a directory
+# literally named "--Update". That happened, and it committed 1,200 junk files.
+# With positional binding off, any stray argument is a hard error instead.
+#
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [switch] $Update,
     [switch] $CheckOnly,
+
+    # Reject anything that looks like a mistyped switch rather than a path.
+    [ValidateScript({
+        if ($_ -match '^-') {
+            throw "InstallRoot looks like a mistyped switch: '$_'. PowerShell switches take a single dash, e.g. -Update not --Update."
+        }
+        $true
+    })]
     [string] $InstallRoot = (Join-Path $env:LOCALAPPDATA 'Programs'),
+
     [switch] $Force,
     [switch] $SkipTools,
     [switch] $SkipPython,

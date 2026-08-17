@@ -1,6 +1,15 @@
 # Extracted installs never belong in the repo; only the source zip is tracked.
+#
+# nvim-portable-tools/ is listed separately because "nvim-portable/" does not
+# match it -- a gap that let 1,200 extracted tool files get committed when a
+# mistyped `--Update` caused setup.ps1 to install into the repo directory.
+# setup.ps1 now rejects stray positional arguments, but keep both patterns.
 nvim-win64/
 nvim-portable/
+nvim-portable-tools/
+
+# Any install root accidentally created inside the repo by a mistyped switch.
+--*/
 
 # Local scratch
 *.log
