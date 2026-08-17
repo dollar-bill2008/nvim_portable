@@ -98,6 +98,25 @@ if ($mode -ne 'FullLanguage') {
     Write-Pass 'full language mode'
 }
 
+Write-Section 'Script execution policy'
+# Execution policy governs script FILES only, and never blocks nvim.exe itself.
+# It matters here solely because it decides how you invoke these two scripts.
+# The precedence trap: if it is set by Group Policy (MachinePolicy or
+# UserPolicy scope), that outranks both -ExecutionPolicy on the command line
+# and Set-ExecutionPolicy -Scope CurrentUser. Neither will override it, which
+# is the point at which people wrongly conclude they are stuck.
+$policies = Get-ExecutionPolicy -List
+foreach ($p in $policies) { Write-Info ("{0,-14} {1}" -f $p.Scope, $p.ExecutionPolicy) }
+$byGpo = $policies | Where-Object { ($_.Scope -eq 'MachinePolicy' -or $_.Scope -eq 'UserPolicy') -and $_.ExecutionPolicy -ne 'Undefined' }
+if ($byGpo) {
+    Write-Fail "set by Group Policy ($($byGpo[0].ExecutionPolicy)) -- -ExecutionPolicy Bypass will NOT override this"
+    Write-Info 'nvim itself is unaffected. To run these scripts, pipe the text instead'
+    Write-Info 'of executing the file:'
+    Write-Info '    Get-Content .\install.ps1 -Raw | Invoke-Expression'
+} else {
+    Write-Pass 'not enforced by Group Policy; -ExecutionPolicy Bypass works'
+}
+
 Write-Section 'Live execution test from a user-writable directory'
 # The decisive check. Everything above is policy inspection; this is empirical.
 $testDir = Join-Path $env:LOCALAPPDATA ('nvim-probe-' + [System.Guid]::NewGuid().ToString('N').Substring(0, 8))

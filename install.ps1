@@ -41,7 +41,18 @@ $ErrorActionPreference = 'Stop'
 # bytes that were vetted rather than an upstream-attested digest.
 $ExpectedSha256 = '9fc3572829ffd13debb6e32555da2c8cc02555568260a9fc4cf1f65bbcca319c'
 
-$scriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
+# $PSScriptRoot and $MyInvocation are both empty when this script is run via
+# Invoke-Expression, which is the only route left when a Group Policy
+# execution policy is in force. Fall back to the working directory so that
+# route still finds the bundled zip.
+# Both are null under Invoke-Expression, and Split-Path throws on a null
+# argument rather than returning empty, so guard before calling it.
+$scriptDir = $PSScriptRoot
+if (-not $scriptDir -and $MyInvocation.MyCommand.Path) {
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if (-not $scriptDir) { $scriptDir = (Get-Location).Path }
+
 $zipPath    = Join-Path $scriptDir 'bin\nvim-win64.zip'
 $installDir = Join-Path $InstallRoot 'nvim-portable'
 $binDir     = Join-Path $installDir 'bin'
@@ -50,6 +61,31 @@ $nvimExe    = Join-Path $binDir 'nvim.exe'
 function Write-Step { param([string] $Message) Write-Host "==> $Message" -ForegroundColor Cyan }
 function Write-Ok   { param([string] $Message) Write-Host "    OK   $Message" -ForegroundColor Green }
 function Write-Warn { param([string] $Message) Write-Host "    WARN $Message" -ForegroundColor Yellow }
+
+function Remove-WithRetry {
+    <#
+        Real-time antivirus on managed corporate builds transiently opens
+        freshly written binaries to scan them, which surfaces here as an
+        access-denied on files such as bin\DbgHelp.dll. The lock clears within
+        a few hundred milliseconds, so back off and retry rather than fail an
+        otherwise healthy install.
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [int] $Attempts = 5
+    )
+    for ($i = 1; $i -le $Attempts; $i++) {
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+            return
+        }
+        catch {
+            if ($i -eq $Attempts) { throw }
+            Write-Warn "locked, retrying ($i/$Attempts): $($_.Exception.Message)"
+            Start-Sleep -Milliseconds (250 * $i)
+        }
+    }
+}
 
 if (-not (Test-Path $zipPath)) {
     throw "Bundled zip not found at $zipPath. Was the repo cloned with the bin/ directory intact?"
@@ -106,8 +142,16 @@ try {
     # script, so a mistyped -InstallRoot cannot delete unrelated data.
     if (Test-Path $installDir) {
         if (Test-Path (Join-Path $installDir 'bin\nvim.exe')) {
+            # A running editor holds its own binary open, which no amount of
+            # retrying will clear. Say so plainly instead of timing out.
+            $running = Get-Process -Name nvim, nvim-qt -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -and $_.Path.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) }
+            if ($running) {
+                throw "Neovim is running from $installDir (PID $($running.Id -join ', ')). Close it and re-run."
+            }
+
             Write-Step "Removing previous install at $installDir"
-            Remove-Item $installDir -Recurse -Force
+            Remove-WithRetry -Path $installDir
             Write-Ok 'previous install removed'
         } else {
             throw "$installDir exists but does not look like a nvim-portable install (no bin\nvim.exe). Refusing to delete it."

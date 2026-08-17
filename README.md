@@ -70,13 +70,61 @@ Open a new terminal, then:
 nvim --version
 ```
 
-If PowerShell refuses to run the scripts, they are unsigned local files:
+### "running scripts is disabled on this system"
+
+That is PowerShell's execution policy, which governs script **files**. It never
+blocks `nvim.exe` -- it only decides how you invoke these two scripts. Work
+down this ladder.
+
+**1. Per-command, no persistence, no admin:**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\probe.ps1
 ```
 
-That flag is per-process and needs no admin rights.
+**2. Persistent for your user, no admin:**
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+`RemoteSigned` permits unsigned *local* scripts. A `git clone` does not mark
+files as downloaded, so cloned scripts run fine under it. Downloading the repo
+as a **zip** does mark them, in which case clear it with:
+
+```powershell
+Unblock-File .\*.ps1
+```
+
+**3. If it is set by Group Policy, neither of the above works.** Execution
+policy has a precedence order, and the two Group Policy scopes outrank
+anything you can set yourself:
+
+| Scope | Set by |
+| --- | --- |
+| `MachinePolicy` | Group Policy -- outranks all below |
+| `UserPolicy` | Group Policy -- outranks all below |
+| `Process` | `-ExecutionPolicy` on the command line |
+| `CurrentUser` | `Set-ExecutionPolicy -Scope CurrentUser` |
+| `LocalMachine` | machine default |
+
+Check with `Get-ExecutionPolicy -List`. If either policy scope is anything but
+`Undefined`, `-ExecutionPolicy Bypass` will silently fail to take effect.
+
+The escape is that the policy applies to script *files*, not to commands. Feed
+the script text to PowerShell instead of executing the file:
+
+```powershell
+Get-Content .\probe.ps1   -Raw | Invoke-Expression
+Get-Content .\install.ps1 -Raw | Invoke-Expression
+```
+
+This is not a bypass of anything security-relevant -- it is the documented
+boundary of what execution policy covers. Execution policy is not a security
+control; it prevents accidental script execution, which is why Microsoft
+places no trust boundary there.
+
+`probe.ps1` reports all of this, including whether Group Policy is involved.
 
 ## What each script does
 
