@@ -51,20 +51,25 @@ return {
             "gitcommit", "gitignore", "vim", "vimdoc", "query",
         }
 
-        -- Only attempt a build if the toolchain is actually present. Without
-        -- this, a machine missing zig or the tree-sitter CLI would throw on
-        -- every startup instead of quietly falling back.
+        -- Locate the toolchain, repairing this session's PATH if needed.
+        --
+        -- Checking PATH alone was wrong: setup.ps1 adds the tool directories to
+        -- the *user* PATH, and environment changes only reach processes started
+        -- afterwards. A terminal opened before setup ran reported "missing a C
+        -- compiler" with the compiler sitting installed on disk. config.paths
+        -- resolves the bundled tree-sitter CLI directly, and asks Python where
+        -- pip put ziglang's zig.exe, then puts both on this session's PATH so
+        -- the build subprocesses can find them.
+        local paths = require("config.paths")
         local missing = {}
-        if vim.fn.executable("tree-sitter") == 0 then table.insert(missing, "tree-sitter") end
-        if vim.fn.executable("zig") == 0 and vim.fn.executable("cc") == 0
-            and vim.fn.executable("gcc") == 0 and vim.fn.executable("clang") == 0 then
-            table.insert(missing, "a C compiler (pip install ziglang)")
-        end
+        if not paths.ensure_tree_sitter_cli() then table.insert(missing, "the tree-sitter CLI") end
+        if not paths.ensure_c_compiler() then table.insert(missing, "a C compiler") end
 
         if #missing > 0 then
             vim.notify(
                 "treesitter: not installing parsers, missing " .. table.concat(missing, " and ")
-                .. "\nSyntax highlighting falls back to the regex engine. Run setup.ps1 to fix.",
+                .. "\nHighlighting falls back to the regex engine."
+                .. "\nRun setup.ps1, then open a NEW terminal.",
                 vim.log.levels.WARN
             )
         else

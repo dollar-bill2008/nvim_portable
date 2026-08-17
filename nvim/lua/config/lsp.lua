@@ -40,39 +40,13 @@ vim.diagnostic.config({
     float = { border = "rounded", source = true },
 })
 
--- Where setup.ps1 put the bundled tools.
---
--- Derived from the running Neovim binary rather than hardcoded, because
--- setup.ps1 -InstallRoot can move both. nvim lives at
---   <root>/nvim-portable/bin/nvim.exe
--- and the tools at
---   <root>/nvim-portable-tools/
--- vim.fs.normalize is what keeps the separators consistent. fnamemodify
--- returns a Windows path with backslashes, and appending forward slashes to it
--- produces a mixed-separator path that some servers mis-handle -- notably
--- lua-language-server, which failed to start with "Duplicate channel" until
--- the path was normalised.
-local function tools_root()
-    local root = vim.fs.normalize(vim.fn.fnamemodify(vim.v.progpath, ":h:h:h"))
-    return root .. "/nvim-portable-tools"
-end
-
-local function resolve(candidates)
-    -- Returns the first candidate that exists and is executable, or nil.
-    --
-    -- Bundled absolute paths are listed before bare names on purpose. A bare
-    -- name found on PATH is not necessarily usable: on a machine with rustup
-    -- installed, ~/.cargo/bin/rust-analyzer.exe is a *proxy shim* that exists,
-    -- satisfies executable(), and then dies with "Unknown binary
-    -- 'rust-analyzer.exe' in official toolchain" because the component was
-    -- never installed. Preferring the bundled copy sidesteps that entirely.
-    for _, candidate in ipairs(candidates) do
-        if vim.fn.executable(candidate) == 1 then return candidate end
-    end
-    return nil
-end
-
-local tools = tools_root()
+-- Tool location lives in config.paths, shared with the treesitter setup rather
+-- than duplicated here. See that file for why PATH alone is not trusted:
+-- bundled copies are preferred over bare names because a machine's own copy can
+-- exist, satisfy executable(), and still be unusable.
+local paths = require("config.paths")
+local resolve = paths.resolve
+local tools = paths.tools_root()
 local has_cargo = vim.fn.executable("cargo") == 1
 
 -- Project root markers, with priority.
