@@ -64,8 +64,12 @@ $sources = @(
     },
     @{
         name    = 'rust-analyzer'
-        version = '2026-08-17.3'
-        url     = 'https://github.com/rust-lang/rust-analyzer/releases/download/2026-08-17.3/rust-analyzer-x86_64-pc-windows-msvc.zip'
+        # rust-analyzer publishes several releases a day and PRUNES the assets
+        # of superseded ones. The git tag survives but the download 404s, so
+        # this pin has a short shelf life and will need bumping on any rebuild.
+        # The committed bundle is unaffected -- that is the durable artifact.
+        version = '2026-08-17.4'
+        url     = 'https://github.com/rust-lang/rust-analyzer/releases/download/2026-08-17.4/rust-analyzer-x86_64-pc-windows-msvc.zip'
         take    = @{ pattern = 'rust-analyzer.exe'; into = 'bin' }
     },
     @{
@@ -75,6 +79,18 @@ $sources = @(
         # This one needs its whole distribution, not a single file: the
         # executable loads main.lua plus the meta/ and locale/ trees at runtime.
         wholeTree = 'lua-language-server'
+    },
+    @{
+        name    = 'tree-sitter-cli'
+        version = 'v0.26.12'
+        url     = 'https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.12/tree-sitter-windows-x64.gz'
+        # Required by nvim-treesitter's main branch to generate parsers, and
+        # explicitly NOT to be installed from npm. There is no PyPI package
+        # either, so it has to be bundled.
+        #
+        # This asset is a bare gzipped executable rather than an archive, so
+        # tar cannot unpack it -- hence the separate handling below.
+        gzipTo  = 'bin/tree-sitter.exe'
     }
 )
 
@@ -91,9 +107,54 @@ try {
         Write-Step "$($src.name) $($src.version)"
 
         $dl = Join-Path $work "$($src.name).zip"
-        Invoke-WebRequest -Uri $src.url -OutFile $dl -UseBasicParsing -TimeoutSec 600
+        try {
+            Invoke-WebRequest -Uri $src.url -OutFile $dl -UseBasicParsing -TimeoutSec 600
+        }
+        catch {
+            throw @"
+Download failed for $($src.name) $($src.version)
+  $($src.url)
+  $($_.Exception.Message)
+
+If this is a 404, the pinned release's assets were most likely pruned upstream.
+rust-analyzer does this routinely: it ships several releases a day and removes
+the assets of superseded ones, so the git tag remains while the download dies.
+
+Find a current tag with:
+  git ls-remote --tags https://github.com/$(($src.url -split '/')[3])/$(($src.url -split '/')[4])
+then update the pin in this file. rust-analyzer also publishes a rolling
+'nightly' tag that never 404s, at the cost of reproducibility.
+
+The committed tools/nvim-tools.zip is NOT affected -- it already holds a working
+binary. Rebuilding is only needed to change versions.
+"@
+        }
         $sha = (Get-FileHash $dl -Algorithm SHA256).Hash.ToLower()
         Write-Ok ("downloaded {0:N1} MB, sha256 {1}" -f ((Get-Item $dl).Length / 1MB), $sha.Substring(0, 16))
+
+        if ($src.gzipTo) {
+            # A bare gzipped executable rather than an archive, so tar cannot
+            # unpack it. Decompress with GZipStream straight to its destination.
+            $dest = Join-Path $staging $src.gzipTo
+            New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+            $input = [System.IO.File]::OpenRead($dl)
+            try {
+                $gz = New-Object System.IO.Compression.GZipStream($input, [System.IO.Compression.CompressionMode]::Decompress)
+                try {
+                    $outFile = [System.IO.File]::Create($dest)
+                    try { $gz.CopyTo($outFile) } finally { $outFile.Dispose() }
+                } finally { $gz.Dispose() }
+            } finally { $input.Dispose() }
+            Write-Ok ("staged {0} ({1:N1} MB decompressed)" -f $src.gzipTo, ((Get-Item $dest).Length / 1MB))
+
+            $records += [ordered]@{
+                name         = $src.name
+                version      = $src.version
+                url          = $src.url
+                sourceSha256 = $sha
+            }
+            continue
+        }
 
         $ex = Join-Path $work "extract-$($src.name)"
         New-Item -ItemType Directory -Force -Path $ex | Out-Null

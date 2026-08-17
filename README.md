@@ -229,7 +229,12 @@ nvim/
   lua/config/keymaps.lua    non-plugin key mappings
   lua/config/lazy.lua       bootstraps the plugin manager
   lua/config/lsp.lua        language servers, diagnostics, LSP keymaps
-  lua/plugins/*.lua         one file per plugin, each returning a spec
+  lua/plugins/blink-cmp.lua   completion
+  lua/plugins/colorscheme.lua theme
+  lua/plugins/lualine.lua     statusline
+  lua/plugins/neo-tree.lua    file browser
+  lua/plugins/telescope.lua   fuzzy finder
+  lua/plugins/treesitter.lua  syntax highlighting
 ```
 
 `init.lua` requires `config.lsp` **after** `config.lazy`, and that order is
@@ -376,7 +381,8 @@ rewrite is a surprise, especially in a shared repo with its own style settings.
 
 The design rule is **assume nothing is installed on the target machine**. Every
 dependency comes from exactly one of two places: bundled in this repo, or
-`pip`. No package manager, no rustup, no system Node, no C compiler.
+`pip`. No package manager, no rustup, no system Node, and no preinstalled C
+compiler.
 
 Bundled in `tools/nvim-tools.zip`, extracted by `setup.ps1`:
 
@@ -384,8 +390,15 @@ Bundled in `tools/nvim-tools.zip`, extracted by `setup.ps1`:
 | --- | --- | --- |
 | `rg` (ripgrep) | telescope grep | 15.2.0 |
 | `fd` | telescope file listing | 10.4.2 |
-| `rust-analyzer` | Rust LSP | 2026-08-17.3 |
+| `rust-analyzer` | Rust LSP | 2026-08-17.4 |
 | `lua-language-server` | Lua LSP | 3.19.1 |
+| `tree-sitter` | generating treesitter parsers | 0.26.12 |
+
+> **rust-analyzer pins rot.** Upstream ships several releases a day and prunes
+> the assets of superseded ones, so its download URL 404s within hours while the
+> git tag survives. `fetch-tools.ps1` detects this and prints how to find a
+> current tag. The committed zip is unaffected -- which is exactly why the
+> binary is bundled rather than fetched at install time.
 
 Installed from pip by `setup.ps1`:
 
@@ -393,6 +406,12 @@ Installed from pip by `setup.ps1`:
 | --- | --- | --- |
 | `basedpyright` | Python LSP | Ships its own Node via `nodejs-wheel-binaries`, so **no system Node needed** |
 | `ruff` | Python lint + format | Rust binary distributed as a wheel |
+| `ziglang` | **C compiler** for treesitter parsers | A complete C compiler as a wheel -- `zig cc` stands in for gcc/clang |
+
+That last one is the interesting piece: `pip install ziglang` gives you a real C
+compiler on a machine with no build tools whatsoever, which is what makes
+treesitter possible here. Its `zig.exe` lives inside the package directory
+rather than in `Scripts`, so `setup.ps1` locates and adds that path separately.
 
 `pip --user` puts console scripts in a directory that is not on PATH by
 default, so `setup.ps1` asks Python where they went
@@ -408,6 +427,59 @@ success without ever exercising the bundle.
 Telescope degrades to slower built-ins if `rg`/`fd` are somehow unavailable
 rather than failing. Verify what Neovim can see with `:checkhealth telescope`.
 
+### Syntax highlighting
+
+Treesitter parses each file into a real syntax tree instead of matching regular
+expressions, so a function name is highlighted because it *is* a function name.
+Neovim 0.12 ships **no** parsers, so each is generated and compiled locally.
+
+That is why the tooling above exists. `nvim-treesitter`'s `main` branch needs:
+
+| Requirement | Source here |
+| --- | --- |
+| `tree-sitter` CLI ≥ 0.26.1 | bundled -- no PyPI package exists, and upstream says explicitly not to use npm |
+| a C compiler | `pip install ziglang` → `zig cc` |
+| `tar` and `curl` | ship with Windows 10+ |
+
+Parsers install to `stdpath('data')/site`, not into this repo -- compiled
+binaries are derived artifacts. Highlighting is enabled per buffer by a
+`FileType` autocmd calling `vim.treesitter.start()`, because the `main` branch
+deliberately does not enable features for you. Files over 1 MB are skipped.
+
+If the toolchain is missing, `lua/plugins/treesitter.lua` notifies once and
+falls back to the regex engine rather than erroring on every startup.
+
+Add a language by adding it to the `languages` list in that file. `:TSUpdate`
+rebuilds parsers after a plugin update -- required, since parser versions are
+pinned to plugin versions.
+
+### Theming
+
+`lua/plugins/colorscheme.lua` holds the scheme, currently **rose-pine**. To
+switch: change the repo and the `vim.cmd.colorscheme` call in that file,
+restart, then `:Lazy clean` to remove the old plugin. Alternatives, all
+treesitter-aware, are listed in the file's header comment.
+
+Treesitter matters for theming: it produces fine-grained groups like
+`@function.call` and `@variable.parameter` that a scheme can colour separately.
+The regex engine cannot, which is why schemes looked flatter before.
+
+Two tools for tweaking rather than guessing:
+
+| Command | Shows |
+| --- | --- |
+| `:Inspect` | Treesitter capture, highlight group and colour under the cursor |
+| `:InspectTree` | The live syntax tree for the buffer |
+
+The custom `LineNr` / `CursorLineNr` colours in `lua/config/options.lua`
+deliberately override whatever the scheme sets, and are re-applied on the
+`ColorScheme` event so they survive a scheme change. Verified: they hold at
+`#9CC2D6` / `#3A6B84` after rose-pine loads.
+
+`lua/plugins/lualine.lua` is the statusline, themed `auto` so it follows the
+colourscheme with no separate configuration. It shows git branch, diagnostic
+counts, and which language servers are attached to the current buffer.
+
 ### Running two configs side by side
 
 `NVIM_APPNAME` changes which config directory Neovim reads, which is the safe
@@ -420,10 +492,11 @@ nvim
 
 ## Known limitations on a hardened machine
 
-- **Treesitter** compiles parsers with a C compiler, and there is none here.
-  Neovim 0.12 bundles `c`, `lua`, `vim`, `vimdoc`, `query` and `markdown`, so
-  the basics work unaided. For anything else, `pip install ziglang` provides a
-  working C compiler through pip alone.
+- **Treesitter parser builds can fail transiently.** Real-time antivirus locks
+  freshly extracted files, which surfaces as `EPERM: operation not permitted`
+  while renaming a temp directory. Re-running the install fixes it -- one parser
+  hit this during setup here and succeeded on retry. GitHub outages also cause
+  silent download stalls; `:TSInstall <lang>` picks those up later.
 - **Mason is deliberately not used.** It downloads language servers at
   runtime, which is the component most likely to be blocked on a hardened
   build. Every server here is either bundled in the repo or comes from pip.

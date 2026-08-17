@@ -83,7 +83,7 @@ $ErrorActionPreference = 'Stop'
 # nvim-tools.zip is assembled by fetch-tools.ps1; tools/manifest.json records
 # each upstream source, its version and its own SHA256.
 $ExpectedNvimSha256  = '9fc3572829ffd13debb6e32555da2c8cc02555568260a9fc4cf1f65bbcca319c'
-$ExpectedToolsSha256 = 'f3ebe11822a36debc3ae82ddc7000f6dc181e65fd550c373df1cad8855f9a308'
+$ExpectedToolsSha256 = '6048ebbe6e2b2bd4f669ec8b06ff8cd11ff2229d0561983de9fd6679ff271539'
 
 # $PSScriptRoot and $MyInvocation are both empty under Invoke-Expression, which
 # is the only route left when a Group Policy execution policy is in force, and
@@ -275,6 +275,28 @@ function Install-Bundle {
             if (-not (Test-Path (Join-Path $TargetDir $SentinelRelativePath))) {
                 throw "$TargetDir exists but has no $SentinelRelativePath, so it is not a previous $Label install. Refusing to delete it."
             }
+
+            # A process running from this directory holds its binary open and no
+            # amount of retrying clears that. This check lives here, rather than
+            # once up front, precisely because an unchanged bundle is skipped
+            # above: having Neovim open must not block a tools or config update
+            # that would never have touched the editor's own files.
+            #
+            # .Path throws on protected system processes, hence the try/catch
+            # per process rather than a single Where-Object.
+            $inUse = @()
+            foreach ($proc in (Get-Process -ErrorAction SilentlyContinue)) {
+                $procPath = $null
+                try { $procPath = $proc.Path } catch { }
+                if ($procPath -and $procPath.StartsWith($TargetDir, [StringComparison]::OrdinalIgnoreCase)) {
+                    $inUse += $proc
+                }
+            }
+            if ($inUse.Count -gt 0) {
+                $who = ($inUse | ForEach-Object { "$($_.ProcessName) (PID $($_.Id))" }) -join ', '
+                throw "Cannot replace the $Label install: $who is running from $TargetDir. Close it and re-run."
+            }
+
             Remove-WithRetry -Path $TargetDir
         }
 
@@ -460,14 +482,21 @@ function Set-ConfigLink {
 
 function Install-PythonTooling {
     <#
-        basedpyright provides the Python language server; ruff provides linting
-        and formatting. Both install from pip on a bare machine: basedpyright
-        pulls nodejs-wheel-binaries and so ships its own Node, needing no
-        system Node, no rustup and no compiler.
+        Three things, all from pip, none needing a compiler or system Node:
+
+          basedpyright  Python language server. Pulls nodejs-wheel-binaries, so
+                        it ships its own Node.
+          ruff          Python linting and formatting. A Rust binary shipped as
+                        a wheel.
+          ziglang       A complete C compiler, as a wheel. This is what lets
+                        treesitter build parsers on a machine with no build
+                        tools at all -- `zig cc` stands in for gcc/clang.
 
         pip --user installs console scripts into a directory that is not on
         PATH by default, so that directory is added here. Without it the
-        language server is installed but invisible to Neovim.
+        language server is installed but invisible to Neovim. ziglang is
+        different again: its zig.exe sits inside the package directory rather
+        than in Scripts, so that path is located and added separately.
     #>
     $py = Get-Command python -ErrorAction SilentlyContinue
     if (-not $py) { $py = Get-Command py -ErrorAction SilentlyContinue }
@@ -477,21 +506,23 @@ function Install-PythonTooling {
     }
     Write-Info "using $($py.Source)"
 
+    $packages = @('basedpyright', 'ruff', 'ziglang')
+
     # --user fails inside an active virtualenv, so fall back without it.
-    $out = Invoke-Native $py.Source @('-m', 'pip', 'install', '--user', '--quiet',
-        '--disable-pip-version-check', 'basedpyright', 'ruff')
+    $out = Invoke-Native $py.Source (@('-m', 'pip', 'install', '--user', '--quiet',
+        '--disable-pip-version-check') + $packages)
     if ($script:LastNativeExit -ne 0) {
         Write-Info 'retrying without --user'
-        $out = Invoke-Native $py.Source @('-m', 'pip', 'install', '--quiet',
-            '--disable-pip-version-check', 'basedpyright', 'ruff')
+        $out = Invoke-Native $py.Source (@('-m', 'pip', 'install', '--quiet',
+            '--disable-pip-version-check') + $packages)
     }
     if ($script:LastNativeExit -ne 0) {
-        Write-Warn 'pip install failed; the Python LSP stays inactive until this succeeds'
+        Write-Warn 'pip install failed; the Python LSP and treesitter compiler stay unavailable'
         $out | Select-Object -Last 6 | ForEach-Object { Write-Info "  $_" }
         Write-Info 'if PyPI is unreachable from this machine, that is the blocker, not the config'
         return
     }
-    Write-Ok 'basedpyright and ruff installed'
+    Write-Ok ($packages -join ', ')
 
     # Ask Python where its user-scope console scripts went rather than guessing
     # at a version-numbered path.
@@ -503,7 +534,18 @@ function Install-PythonTooling {
         Write-Info "could not determine the pip user scripts directory (got '$scriptsDir')"
     }
 
-    foreach ($exe in 'basedpyright-langserver', 'ruff') {
+    # ziglang's zig.exe lives inside the package directory, not in Scripts, so
+    # it needs its own PATH entry. This is what gives treesitter a C compiler
+    # on a machine with no build tools installed.
+    $zigDir = (Invoke-Native $py.Source @('-c',
+        "import ziglang, pathlib; print(pathlib.Path(ziglang.__file__).parent)")) | Select-Object -First 1
+    if ($zigDir -and (Test-Path (Join-Path $zigDir 'zig.exe'))) {
+        Add-UserPathEntries -Entries @($zigDir) | Out-Null
+    } else {
+        Write-Warn 'zig.exe not located; treesitter will not be able to build parsers'
+    }
+
+    foreach ($exe in 'basedpyright-langserver', 'ruff', 'zig') {
         $found = Get-Command $exe -ErrorAction SilentlyContinue
         if ($found) { Write-Ok ("{0,-24} {1}" -f $exe, $found.Source) }
         else { Write-Warn ("{0,-24} installed but not resolvable; open a new terminal" -f $exe) }
@@ -585,13 +627,6 @@ if ($CheckOnly) {
     return
 }
 
-# A running editor holds its own binary open, which retrying cannot clear.
-$running = Get-Process -Name nvim, nvim-qt -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -and $_.Path.StartsWith($nvimDir, [StringComparison]::OrdinalIgnoreCase) }
-if ($running) {
-    throw "Neovim is running from $nvimDir (PID $($running.Id -join ', ')). Close it and re-run."
-}
-
 Write-Section 'Installing Neovim'
 Install-Bundle -ZipPath $nvimZip -TargetDir $nvimDir -ExpectedSha256 $ExpectedNvimSha256 `
     -Label 'neovim' -SentinelRelativePath 'bin\nvim.exe' -StripTopLevel
@@ -621,6 +656,7 @@ if ($SkipTools) {
         'rg'                  = Join-Path $toolsDir 'bin\rg.exe'
         'fd'                  = Join-Path $toolsDir 'bin\fd.exe'
         'rust-analyzer'       = Join-Path $toolsDir 'bin\rust-analyzer.exe'
+        'tree-sitter'         = Join-Path $toolsDir 'bin\tree-sitter.exe'
         'lua-language-server' = Join-Path $toolsDir 'lua-language-server\bin\lua-language-server.exe'
     }
     # Verify by absolute path. Get-Command alone would pass on a machine that
