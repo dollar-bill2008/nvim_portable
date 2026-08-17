@@ -21,9 +21,14 @@ a proxy exception. One `git clone` delivers both the editor and the config.
 ```powershell
 git clone https://github.com/dollar-bill2008/nvim_portable.git $env:USERPROFILE\nvim-portable
 cd $env:USERPROFILE\nvim-portable
-.\probe.ps1      # will this machine allow it?
-.\install.ps1    # install it
+.\probe.ps1        # will this machine allow it?
+.\install.ps1      # install the editor
+.\link-config.ps1  # point Neovim's config location at nvim/ in this repo
 ```
+
+Then open a new terminal and run `nvim`. On first launch lazy.nvim clones
+itself and installs the plugins pinned in `nvim/lazy-lock.json`, which needs
+`git` and network access to github.com. After that, startup is offline.
 
 ### Authenticating the clone
 
@@ -186,15 +191,68 @@ remote Linux host over SSH.
 
 ## Config
 
-Deliberately not included yet. The plan is to confirm a bare Neovim installs
-and runs on the target machine first, then add configuration as a second
-layer in `nvim/`.
+Lives in `nvim/`, linked into `%LOCALAPPDATA%\nvim` by `link-config.ps1` using
+a **directory junction**. Junctions are used rather than symbolic links
+because Windows permits them without administrator rights or Developer Mode,
+neither of which a locked-down build grants. The consequence: editing
+`nvim/init.lua` in this repo edits the live config, with no copy step and no
+drift.
 
-To keep a new config isolated from an existing one at `%LOCALAPPDATA%\nvim`,
-use `NVIM_APPNAME`:
+```
+nvim/
+  init.lua                  entry point: leader key, then requires below
+  lazy-lock.json            exact plugin commits, committed on purpose
+  lua/config/options.lua    editor options
+  lua/config/keymaps.lua    non-plugin key mappings
+  lua/config/lazy.lua       bootstraps the plugin manager
+  lua/plugins/*.lua         one file per plugin, each returning a spec
+```
+
+Adding a plugin means adding a file to `lua/plugins/`. There is no central
+list to keep in sync -- `lua/config/lazy.lua` imports the whole directory.
+
+`lazy-lock.json` pins every plugin to an exact git commit. Plugins are git
+repositories tracked on moving branches, not versioned releases, so without
+the lockfile a clone six weeks from now installs whatever each plugin's branch
+happens to be that morning. Update deliberately with `:Lazy update`, test,
+then commit the changed lockfile; `git revert` plus `:Lazy restore` walks it
+back.
+
+### Keymaps
+
+Leader is `<space>`.
+
+| Key | Action |
+| --- | --- |
+| `<leader>e` | File tree: toggle |
+| `<leader>E` | File tree: reveal current file |
+| `<leader>ff` | Find files |
+| `<leader>fg` | Grep across project |
+| `<leader>fb` | Open buffers |
+| `<leader>fr` | Recent files |
+| `<leader>fk` | Search your own keymaps |
+| `<leader>w` / `<leader>q` | Write / quit |
+| `<C-h/j/k/l>` | Move between splits |
+
+### External tools the config expects
+
+| Tool | Used by | Source |
+| --- | --- | --- |
+| `rg` (ripgrep) | telescope grep | `scoop install ripgrep` |
+| `fd` | telescope file listing | `scoop install fd` |
+| `rust-analyzer` | Rust LSP | `rustup component add rust-analyzer` |
+| `ruff` | Python lint/format | `pip install ruff` |
+
+Telescope degrades to slower built-ins without `rg`/`fd` rather than failing.
+Verify what Neovim can see with `:checkhealth telescope`.
+
+### Running two configs side by side
+
+`NVIM_APPNAME` changes which config directory Neovim reads, which is the safe
+way to try something without disturbing this one:
 
 ```powershell
-$env:NVIM_APPNAME = 'nvim-portable'   # reads %LOCALAPPDATA%\nvim-portable
+$env:NVIM_APPNAME = 'nvim-test'   # reads %LOCALAPPDATA%\nvim-test
 nvim
 ```
 
