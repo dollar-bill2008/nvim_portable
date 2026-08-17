@@ -93,8 +93,16 @@ local has_cargo = vim.fn.executable("cargo") == 1
 -- and disagreeing about configuration.
 --
 -- Both Python servers share one list so they always agree on the root.
+-- ruff.toml and .ruff.toml belong here even though only ruff reads them: a
+-- project configured with a bare ruff.toml and no pyproject.toml would
+-- otherwise have no high-priority marker at all and fall through to .git,
+-- which is exactly the failure this list exists to prevent. Both servers share
+-- the list, so both stop at the same directory either way.
 local python_markers = {
-    { "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", "poetry.lock" },
+    {
+        "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt",
+        "Pipfile", "poetry.lock", "ruff.toml", ".ruff.toml",
+    },
     ".git",
 }
 local rust_markers = { { "Cargo.toml", "rust-project.json" }, ".git" }
