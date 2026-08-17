@@ -251,6 +251,12 @@ vim.api.nvim_create_autocmd("LspAttach", {
         map("gd", vim.lsp.buf.definition, "Go to definition")
         map("gD", vim.lsp.buf.declaration, "Go to declaration")
 
+        -- Hover, displaced from the default K by the <S-k> split navigation in
+        -- config/keymaps.lua. Without this the split binding would silently
+        -- cost you documentation on hover, which is one of the main reasons to
+        -- run a language server at all.
+        map("<leader>k", vim.lsp.buf.hover, "Hover documentation")
+
         map("<leader>lf", function()
             -- Both ruff and basedpyright attach to Python buffers, and asking
             -- "who formats this?" with two clients attached prompts every

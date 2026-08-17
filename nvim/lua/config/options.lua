@@ -75,3 +75,22 @@ vim.opt.cursorline = true
 
 -- Confirm on quit with unsaved changes rather than failing with an error.
 vim.opt.confirm = true
+
+-- Line number colours.
+--
+-- Wrapped in a function and re-applied on the ColorScheme event rather than set
+-- once. Loading a colourscheme clears and redefines every highlight group, so a
+-- bare nvim_set_hl at startup works right up until the moment you add a
+-- colourscheme, at which point it is silently overwritten. This survives that.
+local function line_number_highlights()
+    vim.api.nvim_set_hl(0, "LineNr", { fg = "#9CC2D6" })
+    vim.api.nvim_set_hl(0, "CursorLineNr", { fg = "#3A6B84", bold = true })
+end
+
+vim.api.nvim_create_autocmd("ColorScheme", {
+    group = vim.api.nvim_create_augroup("line-number-highlights", { clear = true }),
+    callback = line_number_highlights,
+    desc = "Keep custom line number colours across colourscheme changes",
+})
+
+line_number_highlights()

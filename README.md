@@ -260,19 +260,46 @@ Leader is `<space>`.
 | `<leader>fb` | Open buffers |
 | `<leader>fr` | Recent files |
 | `<leader>fk` | Search your own keymaps |
-| `<leader>w` / `<leader>q` | Write / quit |
-| `<C-h/j/k/l>` | Move between splits |
+| `<leader>w` / `<leader>W` | Save file / save all |
+| `<leader>q` / `<leader>Q` | Quit / force quit discarding changes |
+| `<leader>x` / `<leader>X` | Save and quit / save and quit all |
+| `<leader>v` / `<leader>s` | Split vertically / horizontally |
+| `<S-h/j/k/l>` | Move between splits |
+| `<S-Left/Down/Up/Right>` | Move between splits |
+| `<C-h/j/k/l>` | Move between splits (second route) |
+| `<leader>j` | Join line below, keeping cursor position |
 | `gd` / `gD` | Go to definition / declaration |
+| `<leader>k` | Hover documentation |
 | `<leader>lf` | Format buffer (Python always via ruff) |
 | `<leader>ll` | Diagnostics to location list |
 | `<leader>ls` | `:LspServers` -- what is running, what is missing |
 | `<leader>d` | Diagnostics for the current line, floating |
 
-Neovim 0.11+ already ships LSP defaults, and they are not re-bound here:
+#### What the Shift split-navigation costs
+
+In Vim's notation `<S-h>` **is** the key `H` -- there is no separate shift-h to
+bind. So those four mappings shadow four default normal-mode commands:
+
+| Shadowed | Was | Now reachable via |
+| --- | --- | --- |
+| `H` | Jump to top line of window | `gg`, or `<C-u>` |
+| `J` | Join line below | `<leader>j` |
+| `K` | **LSP hover documentation** | `<leader>k` |
+| `L` | Jump to bottom line of window | `G`, or `<C-d>` |
+
+`J` and `K` are rehomed because both are worth keeping -- losing hover
+documentation would remove one of the main reasons to run a language server.
+`H` and `L` are simply given up; they are cheap to live without, and `<C-h>` /
+`<C-l>` are bound to the same splits if you would rather delete the `<S-h>` and
+`<S-l>` lines and get them back.
+
+Visual-mode `J` and `K` are untouched and still move the selected lines up and
+down -- the split navigation is normal mode only.
+
+Neovim 0.11+ already ships LSP defaults, and the rest are not re-bound here:
 
 | Key | Action |
 | --- | --- |
-| `K` | Hover documentation |
 | `grn` | Rename symbol |
 | `gra` | Code action |
 | `grr` | References |
@@ -281,6 +308,9 @@ Neovim 0.11+ already ships LSP defaults, and they are not re-bound here:
 | `gO` | Document symbols |
 | `[d` / `]d` | Previous / next diagnostic |
 | `<C-s>` (insert) | Signature help |
+
+Note that `K` is **not** in the list above: it is shadowed by split navigation,
+which is why hover lives on `<leader>k`.
 
 Completion, via blink.cmp:
 
