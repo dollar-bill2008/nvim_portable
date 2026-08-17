@@ -4,10 +4,8 @@
 -- needs separate source plugins for LSP, buffer, path and snippets, plus a
 -- snippet engine. blink includes all of that.
 --
--- The critical setting for a locked-down machine is fuzzy.implementation.
--- blink's default matcher is a Rust binary it downloads or compiles with
--- cargo, and neither is safe to assume. Forcing "lua" means no binary, no
--- download and no compiler -- pure Lua, deterministic everywhere.
+-- fuzzy.implementation is the setting that matters here, and it is a real
+-- tradeoff rather than a formality. See the note beside it below.
 
 return {
     "saghen/blink.cmp",
@@ -60,7 +58,19 @@ return {
 
         signature = { enabled = true },
 
-        -- No Rust binary, no cargo, no download. See the note at the top.
-        fuzzy = { implementation = "lua" },
+        -- The fuzzy matcher runs on every keystroke while the completion menu
+        -- is open, so it sits directly in the typing path -- a slow one is felt
+        -- as input lag, not as a slow menu.
+        --
+        -- "prefer_rust" downloads a prebuilt binary for this release tag (no
+        -- cargo, no compiler) and falls back to the pure-Lua matcher if the
+        -- download is unavailable. That keeps a locked-down machine working
+        -- while not making everyone pay the Lua matcher's cost.
+        --
+        -- Not "prefer_rust_with_warning" (the upstream default): on a machine
+        -- where the download is blocked it warns on every startup, which is
+        -- noise rather than information. Check which one is actually in use
+        -- with :checkhealth blink.cmp
+        fuzzy = { implementation = "prefer_rust" },
     },
 }
