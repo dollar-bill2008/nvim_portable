@@ -75,6 +75,31 @@ end
 local tools = tools_root()
 local has_cargo = vim.fn.executable("cargo") == 1
 
+-- Project root markers, with priority.
+--
+-- Neovim 0.11 treats a NESTED list as higher priority: everything in the inner
+-- table is searched for first, and the outer entries are only considered if
+-- none of them is found. That distinction matters a great deal.
+--
+-- With a flat list, whichever marker sits closest to the filesystem root wins,
+-- and `.git` is usually the outermost one. On a real machine that put ruff's
+-- workspace at a 27 GB OneDrive-synced folder holding 18,000 Python files --
+-- because `.git` lived there -- while basedpyright correctly used the project
+-- directory below it, which had requirements.txt. A server told to watch 50,000
+-- synced files will churn CPU and sync traffic indefinitely.
+--
+-- Divergent roots are a correctness problem too, not just performance: two
+-- servers on the same buffer can end up reading different pyproject.toml files
+-- and disagreeing about configuration.
+--
+-- Both Python servers share one list so they always agree on the root.
+local python_markers = {
+    { "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", "poetry.lock" },
+    ".git",
+}
+local rust_markers = { { "Cargo.toml", "rust-project.json" }, ".git" }
+local lua_markers = { { ".luarc.json", ".luarc.jsonc", "stylua.toml" }, ".git" }
+
 -- root_markers tell the server where the project starts, which decides what it
 -- indexes and how imports resolve. Get this wrong and go-to-definition works
 -- inside a file but not across the project.
@@ -86,7 +111,7 @@ local servers = {
         cmd_candidates = { "basedpyright-langserver" },
         cmd_args = { "--stdio" },
         filetypes = { "python" },
-        root_markers = { "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".git" },
+        root_markers = python_markers,
         settings = {
             basedpyright = {
                 analysis = {
@@ -110,7 +135,7 @@ local servers = {
         cmd_candidates = { "ruff" },
         cmd_args = { "server" },
         filetypes = { "python" },
-        root_markers = { "pyproject.toml", "ruff.toml", ".ruff.toml", ".git" },
+        root_markers = python_markers,
     },
 
     -- Rust. Bundled in tools/, so no rustup needed to get the server itself.
@@ -119,7 +144,7 @@ local servers = {
     rust_analyzer = {
         cmd_candidates = { tools .. "/bin/rust-analyzer.exe", "rust-analyzer" },
         filetypes = { "rust" },
-        root_markers = { "Cargo.toml", "rust-project.json", ".git" },
+        root_markers = rust_markers,
         settings = {
             ["rust-analyzer"] = {
                 cargo = { allFeatures = true },
@@ -148,7 +173,7 @@ local servers = {
             "--metapath", vim.fn.stdpath("cache") .. "/lua-language-server/meta",
         },
         filetypes = { "lua" },
-        root_markers = { ".luarc.json", ".luarc.jsonc", "stylua.toml", ".git" },
+        root_markers = lua_markers,
         settings = {
             Lua = {
                 runtime = { version = "LuaJIT" },
