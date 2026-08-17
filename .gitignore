@@ -1,0 +1,7 @@
+# Extracted installs never belong in the repo; only the source zip is tracked.
+nvim-win64/
+nvim-portable/
+
+# Local scratch
+*.log
+*.tmp

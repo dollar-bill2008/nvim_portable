@@ -1,0 +1,7 @@
+# The bundled release zip must never be touched by line-ending normalisation,
+# or its SHA256 will not survive a clone and install.ps1 will refuse to run.
+*.zip binary
+
+# PowerShell on Windows is happiest with CRLF.
+*.ps1 text eol=crlf
+*.md  text eol=lf
