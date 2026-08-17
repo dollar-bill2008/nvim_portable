@@ -1,0 +1,30 @@
+﻿{
+    "note":  "Rebuild with fetch-tools.ps1. install.ps1 verifies bundleSha256 before extracting.",
+    "bundleSha256":  "f3ebe11822a36debc3ae82ddc7000f6dc181e65fd550c373df1cad8855f9a308",
+    "tools":  [
+                  {
+                      "name":  "ripgrep",
+                      "version":  "15.2.0",
+                      "url":  "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip",
+                      "sourceSha256":  "71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5"
+                  },
+                  {
+                      "name":  "fd",
+                      "version":  "v10.4.2",
+                      "url":  "https://github.com/sharkdp/fd/releases/download/v10.4.2/fd-v10.4.2-x86_64-pc-windows-msvc.zip",
+                      "sourceSha256":  "b2816e506390a89941c63c9187d58a3cc10e9a55f2ef0685f9ea0eccaf7c98c8"
+                  },
+                  {
+                      "name":  "rust-analyzer",
+                      "version":  "2026-08-17.3",
+                      "url":  "https://github.com/rust-lang/rust-analyzer/releases/download/2026-08-17.3/rust-analyzer-x86_64-pc-windows-msvc.zip",
+                      "sourceSha256":  "3212cc9e7ab3f6b07f97be681c2a7200f73fb0463e6f8055c214ebe0b00901f2"
+                  },
+                  {
+                      "name":  "lua-language-server",
+                      "version":  "3.19.1",
+                      "url":  "https://github.com/LuaLS/lua-language-server/releases/download/3.19.1/lua-language-server-3.19.1-win32-x64.zip",
+                      "sourceSha256":  "fdb9a59108cf62517813c97fa5549b0e16d1ef0688306bac728b08434db7e4cd"
+                  }
+              ]
+}

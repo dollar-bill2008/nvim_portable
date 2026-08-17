@@ -22,8 +22,9 @@ a proxy exception. One `git clone` delivers both the editor and the config.
 git clone https://github.com/dollar-bill2008/nvim_portable.git $env:USERPROFILE\nvim-portable
 cd $env:USERPROFILE\nvim-portable
 .\probe.ps1        # will this machine allow it?
-.\install.ps1      # install the editor
+.\install.ps1      # install the editor and bundled tools
 .\link-config.ps1  # point Neovim's config location at nvim/ in this repo
+pip install --user basedpyright ruff   # Python language server and linter
 ```
 
 Then open a new terminal and run `nvim`. On first launch lazy.nvim clones
@@ -234,17 +235,43 @@ Leader is `<space>`.
 | `<leader>w` / `<leader>q` | Write / quit |
 | `<C-h/j/k/l>` | Move between splits |
 
-### External tools the config expects
+### External tools
 
-| Tool | Used by | Source |
+The design rule is **assume nothing is installed on the target machine**. Every
+dependency comes from exactly one of two places: bundled in this repo, or
+`pip`. No package manager, no rustup, no system Node, no C compiler.
+
+Bundled in `tools/nvim-tools.zip`, extracted by `install.ps1`:
+
+| Tool | Used by | Version |
 | --- | --- | --- |
-| `rg` (ripgrep) | telescope grep | `scoop install ripgrep` |
-| `fd` | telescope file listing | `scoop install fd` |
-| `rust-analyzer` | Rust LSP | `rustup component add rust-analyzer` |
-| `ruff` | Python lint/format | `pip install ruff` |
+| `rg` (ripgrep) | telescope grep | 15.2.0 |
+| `fd` | telescope file listing | 10.4.2 |
+| `rust-analyzer` | Rust LSP | 2026-08-17.3 |
+| `lua-language-server` | Lua LSP | 3.19.1 |
 
-Telescope degrades to slower built-ins without `rg`/`fd` rather than failing.
-Verify what Neovim can see with `:checkhealth telescope`.
+From pip, one command:
+
+```powershell
+pip install --user basedpyright ruff
+```
+
+| Tool | Used by | Why pip is enough |
+| --- | --- | --- |
+| `basedpyright` | Python LSP | Ships its own Node via `nodejs-wheel-binaries`, so **no system Node needed** |
+| `ruff` | Python lint + format | Rust binary distributed as a wheel |
+
+`tools/manifest.json` records every bundled tool's upstream URL, version and
+SHA256. `install.ps1` verifies the bundle's own SHA256 before extracting, and
+then verifies each binary by absolute path -- not via `Get-Command`, which
+would pass on a machine that happens to have its own `rg` already on PATH and
+report success without ever exercising the bundle.
+
+To update a bundled tool, edit the pinned version in `fetch-tools.ps1`, run it,
+update `ExpectedToolsSha256` in `install.ps1`, and commit the rebuilt zip.
+
+Telescope degrades to slower built-ins if `rg`/`fd` are somehow unavailable
+rather than failing. Verify what Neovim can see with `:checkhealth telescope`.
 
 ### Running two configs side by side
 
