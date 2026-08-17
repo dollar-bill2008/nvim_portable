@@ -21,15 +21,27 @@ a proxy exception. One `git clone` delivers both the editor and the config.
 ```powershell
 git clone https://github.com/dollar-bill2008/nvim_portable.git $env:USERPROFILE\nvim-portable
 cd $env:USERPROFILE\nvim-portable
-.\probe.ps1        # will this machine allow it?
-.\install.ps1      # install the editor and bundled tools
-.\link-config.ps1  # point Neovim's config location at nvim/ in this repo
-pip install --user basedpyright ruff   # Python language server and linter
+.\setup.ps1
 ```
 
-Then open a new terminal and run `nvim`. On first launch lazy.nvim clones
-itself and installs the plugins pinned in `nvim/lazy-lock.json`, which needs
-`git` and network access to github.com. After that, startup is offline.
+Then open a new terminal and run `nvim`. That is the whole install.
+
+To find out whether a machine will allow any of this before changing anything:
+
+```powershell
+.\setup.ps1 -CheckOnly
+```
+
+To update later, after config or tool versions change upstream:
+
+```powershell
+.\setup.ps1 -Update
+```
+
+`-Update` pulls the repo, then re-applies everything. Every phase is
+idempotent, so an unchanged bundle is skipped and a re-run costs a couple of
+seconds. It is the same command whether you are installing from nothing or
+applying a change.
 
 ### Authenticating the clone
 
@@ -70,22 +82,16 @@ host the network does allow -- Azure DevOps, GitHub Enterprise, Bitbucket, an
 internal GitLab -- and clone from there. The repo is self-contained, so any
 git remote reachable from the target machine works identically.
 
-Open a new terminal, then:
-
-```powershell
-nvim --version
-```
-
 ### "running scripts is disabled on this system"
 
 That is PowerShell's execution policy, which governs script **files**. It never
-blocks `nvim.exe` -- it only decides how you invoke these two scripts. Work
-down this ladder.
+blocks `nvim.exe` -- it only decides how you invoke `setup.ps1`. Work down this
+ladder.
 
 **1. Per-command, no persistence, no admin:**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\probe.ps1
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
 
 **2. Persistent for your user, no admin:**
@@ -121,8 +127,7 @@ The escape is that the policy applies to script *files*, not to commands. Feed
 the script text to PowerShell instead of executing the file:
 
 ```powershell
-Get-Content .\probe.ps1   -Raw | Invoke-Expression
-Get-Content .\install.ps1 -Raw | Invoke-Expression
+Get-Content .\setup.ps1 -Raw | Invoke-Expression
 ```
 
 This is not a bypass of anything security-relevant -- it is the documented
@@ -130,42 +135,59 @@ boundary of what execution policy covers. Execution policy is not a security
 control; it prevents accidental script execution, which is why Microsoft
 places no trust boundary there.
 
-`probe.ps1` reports all of this, including whether Group Policy is involved.
+`setup.ps1` reports all of this in its preflight, including whether Group
+Policy is involved.
 
-## What each script does
+## The two scripts
 
-### `probe.ps1`
+### `setup.ps1`
 
-Read-only. Answers the only question that matters on a hardened build: **can
-an unprivileged user execute a binary from a user-writable directory?**
+The only script you run. Five phases, each idempotent:
 
-It checks AppLocker (including whether `AppIDSvc` is even running, since the
-rules are inert if it is not), user-mode WDAC code integrity, Smart App
-Control, and the PowerShell language mode -- then performs a live execution
-test by copying a signed system binary into `%LOCALAPPDATA%` and running it.
-It also inventories the toolchain and checks network reachability.
+| Phase | What it does |
+| --- | --- |
+| **Preflight** | Can this machine execute a binary from a user-writable path? |
+| **Install** | Extract Neovim and the bundled tools; add three PATH entries |
+| **Link** | Junction `%LOCALAPPDATA%\nvim` to `nvim/` in this repo |
+| **Python** | `pip install basedpyright ruff`, and put pip's script dir on PATH |
+| **Plugins** | `Lazy! install` then `Lazy! restore`, pinning to the lockfile |
 
-Ends with a verdict and, if blocked, a ranked list of fallbacks.
+Preflight checks AppLocker (including whether `AppIDSvc` is even running, since
+the rules are inert if it is not), user-mode versus kernel-mode WDAC, Smart App
+Control and the execution policy scopes, then performs a live execution test by
+copying a signed system binary into `%LOCALAPPDATA%` and running it. If it
+finds a blocker it refuses to install and prints ranked fallbacks.
 
-### `install.ps1`
+Each bundle records its SHA256 in a `.bundle-sha256` marker on success. On
+re-run a matching marker means the extraction is skipped entirely, which is
+what makes this cheap to run repeatedly. Extraction stages to a temp directory
+first, so a blocked or interrupted run never leaves a half-installed tree, and
+it refuses to delete a target that does not carry the expected sentinel file.
 
-Clears the mark-of-the-web from the zip, verifies its SHA256, extracts via
-`tar.exe` from System32 (preferred over `Expand-Archive`, which constrained
-language mode often breaks), installs to
-`%LOCALAPPDATA%\Programs\nvim-portable`, adds `bin` to the user-scope PATH,
-and verifies the binary runs with `--clean`.
-
-Extraction goes to a staging directory first, so a blocked or interrupted run
-never leaves a half-installed tree. It refuses to delete a target directory
-that does not already look like one of its own installs.
-
-Useful switches:
+Plugins use `install` then `restore`, never `sync` -- `sync` would update
+plugins to their branch tips and move them off the pinned commits.
 
 | Switch | Effect |
 | --- | --- |
+| `-CheckOnly` | Run preflight and stop. Changes nothing |
+| `-Update` | `git pull` first, then apply everything |
 | `-InstallRoot <path>` | Install somewhere other than `%LOCALAPPDATA%\Programs` |
+| `-Force` | Re-extract unchanged bundles; replace a real config directory (renamed, never deleted) |
+| `-SkipTools` | No rg, fd, rust-analyzer, lua-language-server |
+| `-SkipPython` | No pip install |
+| `-SkipPlugins` | Leave plugins for Neovim to install on first launch |
 | `-SkipPath` | Leave the user PATH alone |
-| `-SkipHashCheck` | Skip zip verification |
+| `-SkipHashCheck` | Skip bundle verification |
+
+### `fetch-tools.ps1`
+
+Maintenance only -- you never need it to install. It rebuilds
+`tools/nvim-tools.zip` from pinned upstream releases, normalising four
+different archive layouts into one tree, and records each source URL, version
+and SHA256 in `tools/manifest.json`.
+
+To update a bundled tool: edit its pinned version here, run it, copy the new
+hash into `$ExpectedToolsSha256` in `setup.ps1`, commit the rebuilt zip.
 
 ## What actually blocks a portable install
 
@@ -183,8 +205,8 @@ server. A machine that enforces them against a developer has bigger problems
 than Neovim.
 
 Note that WDAC **kernel-mode** enforcement is common and irrelevant -- it
-governs driver signing. `probe.ps1` reports the two separately for this
-reason.
+governs driver signing. `setup.ps1` reports the two separately for this reason,
+because conflating them is the usual false alarm.
 
 If blocked, in order of least friction: check WSL (Linux binaries are entirely
 outside Windows AppLocker), ask IT for a path exception, or run Neovim on a
@@ -192,8 +214,8 @@ remote Linux host over SSH.
 
 ## Config
 
-Lives in `nvim/`, linked into `%LOCALAPPDATA%\nvim` by `link-config.ps1` using
-a **directory junction**. Junctions are used rather than symbolic links
+Lives in `nvim/`, linked into `%LOCALAPPDATA%\nvim` by `setup.ps1` using a
+**directory junction**. Junctions are used rather than symbolic links
 because Windows permits them without administrator rights or Developer Mode,
 neither of which a locked-down build grants. The consequence: editing
 `nvim/init.lua` in this repo edits the live config, with no copy step and no
@@ -241,7 +263,7 @@ The design rule is **assume nothing is installed on the target machine**. Every
 dependency comes from exactly one of two places: bundled in this repo, or
 `pip`. No package manager, no rustup, no system Node, no C compiler.
 
-Bundled in `tools/nvim-tools.zip`, extracted by `install.ps1`:
+Bundled in `tools/nvim-tools.zip`, extracted by `setup.ps1`:
 
 | Tool | Used by | Version |
 | --- | --- | --- |
@@ -250,25 +272,23 @@ Bundled in `tools/nvim-tools.zip`, extracted by `install.ps1`:
 | `rust-analyzer` | Rust LSP | 2026-08-17.3 |
 | `lua-language-server` | Lua LSP | 3.19.1 |
 
-From pip, one command:
-
-```powershell
-pip install --user basedpyright ruff
-```
+Installed from pip by `setup.ps1`:
 
 | Tool | Used by | Why pip is enough |
 | --- | --- | --- |
 | `basedpyright` | Python LSP | Ships its own Node via `nodejs-wheel-binaries`, so **no system Node needed** |
 | `ruff` | Python lint + format | Rust binary distributed as a wheel |
 
-`tools/manifest.json` records every bundled tool's upstream URL, version and
-SHA256. `install.ps1` verifies the bundle's own SHA256 before extracting, and
-then verifies each binary by absolute path -- not via `Get-Command`, which
-would pass on a machine that happens to have its own `rg` already on PATH and
-report success without ever exercising the bundle.
+`pip --user` puts console scripts in a directory that is not on PATH by
+default, so `setup.ps1` asks Python where they went
+(`sysconfig.get_path('scripts', scheme='nt_user')`) and adds it. Without that
+the language server is installed but invisible to Neovim.
 
-To update a bundled tool, edit the pinned version in `fetch-tools.ps1`, run it,
-update `ExpectedToolsSha256` in `install.ps1`, and commit the rebuilt zip.
+`tools/manifest.json` records every bundled tool's upstream URL, version and
+SHA256. `setup.ps1` verifies the bundle's own SHA256 before extracting, then
+verifies each binary by absolute path -- not via `Get-Command`, which would
+pass on a machine that happens to have its own `rg` already on PATH and report
+success without ever exercising the bundle.
 
 Telescope degrades to slower built-ins if `rg`/`fd` are somehow unavailable
 rather than failing. Verify what Neovim can see with `:checkhealth telescope`.
@@ -285,14 +305,19 @@ nvim
 
 ## Known limitations on a hardened machine
 
-- **Treesitter** compiles parsers with a C compiler. Neovim 0.12 bundles
-  `c`, `lua`, `vim`, `vimdoc`, `query` and `markdown`, so the basics work
-  unaided. For anything else without a compiler, `pip install ziglang` gives
-  a working C compiler through pip alone.
-- **Mason** language servers mostly want Node. For Python specifically,
-  `ruff` and `jedi-language-server` are pure pip and need no Node.
-- **Telescope** wants `ripgrep` / `fd`; both are single portable exes subject
-  to the same execution question as Neovim itself.
-- **Plugin installs** shell out to `git`, so they inherit its proxy and CA
-  configuration. If `git clone` works, plugin sync works. `pip` and `npm`
-  need their own CA settings behind a TLS-inspecting proxy.
+- **Treesitter** compiles parsers with a C compiler, and there is none here.
+  Neovim 0.12 bundles `c`, `lua`, `vim`, `vimdoc`, `query` and `markdown`, so
+  the basics work unaided. For anything else, `pip install ziglang` provides a
+  working C compiler through pip alone.
+- **Mason is deliberately not used.** It downloads language servers at
+  runtime, which is the component most likely to be blocked on a hardened
+  build. Every server here is either bundled in the repo or comes from pip.
+- **rust-analyzer without a Rust toolchain is partial.** It runs and gives
+  syntax and completion, but full project analysis needs `cargo` for metadata.
+  Install `rustup` (a user-directory install, no admin) if you need that.
+- **Plugin installs shell out to `git`**, so they inherit its proxy and CA
+  configuration. If `git clone` works, plugin sync works. `pip` needs its own
+  CA settings behind a TLS-inspecting proxy.
+- **Nerd Font.** Without one in your terminal, file-type icons render as empty
+  boxes. Cosmetic only -- set `vim.g.have_nerd_font = false` in
+  `nvim/init.lua` for plain-text fallbacks.

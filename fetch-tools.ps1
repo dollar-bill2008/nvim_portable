@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Rebuilds tools/nvim-tools.zip from upstream releases. Maintenance only.
 
@@ -12,7 +12,7 @@
         lua-language-server  Lua language server
 
     Rather than expect a package manager on the target machine, they are
-    normalised into a single zip committed to this repo, which install.ps1
+    normalised into a single zip committed to this repo, which setup.ps1
     extracts. One clone delivers editor, tools and config.
 
     You do NOT need to run this to install anything -- tools/nvim-tools.zip is
@@ -131,7 +131,7 @@ try {
     Write-Ok ("{0:N1} MB, sha256 {1}" -f ((Get-Item $outZip).Length / 1MB), $bundleSha)
 
     ([ordered]@{
-        note       = 'Rebuild with fetch-tools.ps1. install.ps1 verifies bundleSha256 before extracting.'
+        note       = 'Rebuild with fetch-tools.ps1. setup.ps1 verifies bundleSha256 before extracting.'
         bundleSha256 = $bundleSha
         tools      = $records
     } | ConvertTo-Json -Depth 5) | Set-Content -Path $manifest -Encoding utf8
@@ -143,4 +143,5 @@ finally {
 
 Write-Host ''
 Write-Host 'Done. Commit tools/nvim-tools.zip and tools/manifest.json.' -ForegroundColor Green
-Write-Host "Update the ExpectedToolsSha256 constant in install.ps1 to: $bundleSha"
+Write-Host "Update the ExpectedToolsSha256 constant in setup.ps1 to: $bundleSha"
+
