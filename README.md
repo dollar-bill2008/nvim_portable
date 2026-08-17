@@ -19,11 +19,50 @@ a proxy exception. One `git clone` delivers both the editor and the config.
 ## Usage on a new machine
 
 ```powershell
-git clone <this-repo> $env:USERPROFILE\nvim-portable
+git clone https://github.com/dollar-bill2008/nvim_portable.git $env:USERPROFILE\nvim-portable
 cd $env:USERPROFILE\nvim-portable
 .\probe.ps1      # will this machine allow it?
 .\install.ps1    # install it
 ```
+
+### Authenticating the clone
+
+This repo is **private**, owned by the `dollar-bill2008` GitHub account, so the
+clone needs credentials. That is the one external dependency in the whole
+plan -- worth sorting out early on a new machine rather than at the point of
+use.
+
+If the GitHub CLI is available:
+
+```powershell
+gh auth login
+gh repo clone dollar-bill2008/nvim_portable $env:USERPROFILE\nvim-portable
+```
+
+**If `gh` holds more than one account**, the *active* one is used, and a push
+or a clone of a private repo will fail against an account that cannot see it.
+Check with `gh auth status`, and either switch:
+
+```powershell
+gh auth switch --user dollar-bill2008
+```
+
+or override the credential helper for a single command without changing the
+active account:
+
+```powershell
+git -c credential.helper= -c credential.helper='!gh auth git-credential' push
+```
+
+If `gh` is not installed, use a fine-grained personal access token scoped to
+this repository with `Contents: Read` and clone over HTTPS.
+
+### If github.com is blocked entirely
+
+Nothing here depends on GitHub specifically. Push the repo to whatever git
+host the network does allow -- Azure DevOps, GitHub Enterprise, Bitbucket, an
+internal GitLab -- and clone from there. The repo is self-contained, so any
+git remote reachable from the target machine works identically.
 
 Open a new terminal, then:
 
