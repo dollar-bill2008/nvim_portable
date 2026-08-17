@@ -455,10 +455,20 @@ pinned to plugin versions.
 
 ### Theming
 
-`lua/plugins/colorscheme.lua` holds the scheme, currently **rose-pine**. To
-switch: change the repo and the `vim.cmd.colorscheme` call in that file,
-restart, then `:Lazy clean` to remove the old plugin. Alternatives, all
-treesitter-aware, are listed in the file's header comment.
+`lua/plugins/colorscheme.lua` holds the scheme, currently **Monokai** as in
+Sublime Text, via `monokai-pro.nvim`'s `classic` palette. Verified against the
+original values: background `#272822`, keywords `#F92672`, strings `#E6DB74`,
+functions `#A6E22E`, constants `#AE81FF`.
+
+> **The filter is chosen by the colourscheme NAME, not the `filter` option.**
+> The plugin ships one colours file per variant, and the generic
+> `colors/monokai-pro.lua` is a single line: `set_filter("pro")`. So
+> `colorscheme monokai-pro` applies the Pro palette regardless of what `filter`
+> was passed to `setup`. Load `monokai-pro-classic` instead. Variant names are
+> listed in the file's header.
+
+To switch scheme entirely: change the repo and the `vim.cmd.colorscheme` call in
+that file, restart, then `:Lazy clean` to remove the old plugin.
 
 Treesitter matters for theming: it produces fine-grained groups like
 `@function.call` and `@variable.parameter` that a scheme can colour separately.
@@ -474,7 +484,12 @@ Two tools for tweaking rather than guessing:
 The custom `LineNr` / `CursorLineNr` colours in `lua/config/options.lua`
 deliberately override whatever the scheme sets, and are re-applied on the
 `ColorScheme` event so they survive a scheme change. Verified: they hold at
-`#9CC2D6` / `#3A6B84` after rose-pine loads.
+`#9CC2D6` / `#3A6B84` under Monokai.
+
+Note that those are a cool blue, whereas Monokai's own gutter is a muted warm
+grey. If you want the authentic Sublime look, delete the
+`line_number_highlights` block near the end of `lua/config/options.lua` and the
+scheme's own colours take over.
 
 `lua/plugins/lualine.lua` is the statusline, themed `auto` so it follows the
 colourscheme with no separate configuration. It shows git branch, diagnostic
