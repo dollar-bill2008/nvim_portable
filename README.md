@@ -412,6 +412,7 @@ That last one is the interesting piece: `pip install ziglang` gives you a real C
 compiler on a machine with no build tools whatsoever, which is what makes
 treesitter possible here. Its `zig.exe` lives inside the package directory
 rather than in `Scripts`, so `setup.ps1` locates and adds that path separately.
+Getting treesitter to *use* it takes one more step, described below.
 
 `pip --user` puts console scripts in a directory that is not on PATH by
 default, so `setup.ps1` asks Python where they went
@@ -438,8 +439,23 @@ That is why the tooling above exists. `nvim-treesitter`'s `main` branch needs:
 | Requirement | Source here |
 | --- | --- |
 | `tree-sitter` CLI ≥ 0.26.1 | bundled -- no PyPI package exists, and upstream says explicitly not to use npm |
-| a C compiler | `pip install ziglang` → `zig cc` |
+| a C compiler | `pip install ziglang` → `zig cc`, reached through a shim |
 | `tar` and `curl` | ship with Windows 10+ |
+
+> **`tree-sitter build` does not look for a compiler on PATH.** It compiles
+> through Rust's `cc` crate, which on a `*-windows-msvc` host runs `cl.exe` and
+> nothing else unless `CC` names an alternative. So a working `zig.exe` sitting
+> on PATH still fails with `cl.exe ... Error: program not found`. `CC` takes a
+> single executable, and a `CC` of `"zig cc"` loses the `cc` and runs bare zig,
+> which just prints its usage. Worse, once the crate sees clang behind a shim it
+> appends `--target=x86_64-pc-windows-msvc` -- a valid LLVM triple that zig, which
+> parses triples itself, rejects with `UnknownOperatingSystem`.
+>
+> `lua/config/paths.lua` therefore writes a small batch file to
+> `stdpath('data')/nvim-portable/zig-cc.bat` that forwards to `zig cc` and drops
+> that flag, and sets `CC` to it. zig then builds for its native target and
+> Neovim loads the resulting parsers happily. The shim is rewritten only when
+> its content changes, and an existing `CC` in the environment always wins.
 
 Parsers install to `stdpath('data')/site`, not into this repo -- compiled
 binaries are derived artifacts. Highlighting is enabled per buffer by a
@@ -511,7 +527,9 @@ nvim
   freshly extracted files, which surfaces as `EPERM: operation not permitted`
   while renaming a temp directory. Re-running the install fixes it -- one parser
   hit this during setup here and succeeded on retry. GitHub outages also cause
-  silent download stalls; `:TSInstall <lang>` picks those up later.
+  silent download stalls; `:TSInstall <lang>` picks those up later. zig's own
+  build cache (`%LOCALAPPDATA%\zig`) can also report `CacheCheckFailed` while it
+  is populating; deleting that directory is safe and it rebuilds.
 - **Mason is deliberately not used.** It downloads language servers at
   runtime, which is the component most likely to be blocked on a hardened
   build. Every server here is either bundled in the repo or comes from pip.

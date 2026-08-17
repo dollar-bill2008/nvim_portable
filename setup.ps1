@@ -552,8 +552,12 @@ function Install-PythonTooling {
     }
 
     # ziglang's zig.exe lives inside the package directory, not in Scripts, so
-    # it needs its own PATH entry. This is what gives treesitter a C compiler
-    # on a machine with no build tools installed.
+    # it needs its own PATH entry to be usable by hand.
+    #
+    # Treesitter does not rely on this entry: `tree-sitter build` ignores PATH
+    # for the compiler and reads CC, so lua/config/paths.lua locates zig.exe
+    # itself and points CC at a shim. PATH alone would leave parser builds
+    # failing with "cl.exe ... program not found".
     $zigDir = (Invoke-Native $py.Source @('-c',
         "import ziglang, pathlib; print(pathlib.Path(ziglang.__file__).parent)")) | Select-Object -First 1
     if ($zigDir -and (Test-Path (Join-Path $zigDir 'zig.exe'))) {

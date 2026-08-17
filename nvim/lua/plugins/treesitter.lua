@@ -51,15 +51,18 @@ return {
             "gitcommit", "gitignore", "vim", "vimdoc", "query",
         }
 
-        -- Locate the toolchain, repairing this session's PATH if needed.
+        -- Locate the toolchain, repairing this session's environment if needed.
         --
-        -- Checking PATH alone was wrong: setup.ps1 adds the tool directories to
-        -- the *user* PATH, and environment changes only reach processes started
-        -- afterwards. A terminal opened before setup ran reported "missing a C
-        -- compiler" with the compiler sitting installed on disk. config.paths
-        -- resolves the bundled tree-sitter CLI directly, and asks Python where
-        -- pip put ziglang's zig.exe, then puts both on this session's PATH so
-        -- the build subprocesses can find them.
+        -- Neither half of it can be found the obvious way. setup.ps1 adds the
+        -- tool directories to the *user* PATH, and environment changes only
+        -- reach processes started afterwards, so a terminal opened before setup
+        -- ran sees none of them. And the compiler is not a PATH question at
+        -- all: `tree-sitter build` compiles through Rust's `cc` crate, which on
+        -- Windows looks for cl.exe and nothing else unless CC names an
+        -- alternative -- so a perfectly good zig.exe on PATH still produced
+        -- "cl.exe ... program not found". config.paths resolves the bundled
+        -- tree-sitter CLI onto this session's PATH, and points CC at a shim
+        -- that forwards to `zig cc`.
         local paths = require("config.paths")
         local missing = {}
         if not paths.ensure_tree_sitter_cli() then table.insert(missing, "the tree-sitter CLI") end
