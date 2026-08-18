@@ -64,6 +64,13 @@ return {
         -- tree-sitter CLI onto this session's PATH, and points CC at a shim
         -- that forwards to `zig cc`.
         local paths = require("config.paths")
+
+        -- Downloads go through curl, which on a TLS-inspecting corporate
+        -- network fails with CRYPT_E_NO_REVOCATION_CHECK before any compiler is
+        -- involved. Give it a config that tolerates a proxy certificate with no
+        -- reachable revocation list. Scoped to this session's children.
+        paths.ensure_curl_config()
+
         local missing = {}
         if not paths.ensure_tree_sitter_cli() then table.insert(missing, "the tree-sitter CLI") end
         if not paths.ensure_c_compiler() then table.insert(missing, "a C compiler") end

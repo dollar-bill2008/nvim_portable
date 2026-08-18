@@ -460,6 +460,40 @@ That is why the tooling above exists. `nvim-treesitter`'s `main` branch needs:
 | a C compiler | `pip install ziglang` → `zig cc`, reached through a shim |
 | `tar` and `curl` | ship with Windows 10+ |
 
+#### Behind a TLS-inspecting corporate proxy
+
+Parser downloads go through curl, and Windows curl is built against
+Schannel. Schannel refuses a connection when it cannot fetch the revocation
+list for the certificate it is offered, and a MITM proxy's generated
+certificate usually names no reachable CRL or OCSP responder. The result is
+every parser download failing with:
+
+```
+curl: (35) schannel: next InitializeSecurityContext failed:
+CRYPT_E_NO_REVOCATION_CHECK - The revocation function was unable to
+check revocation for the certificate.
+```
+
+Note the asymmetry that makes this confusing: `git clone` works fine on the
+same network, because git ships its own TLS stack and never consults
+Schannel. So plugins install and only parsers fail.
+
+nvim-treesitter hardcodes its curl arguments, so no flag can be passed in.
+curl does read a config file though, and `CURL_HOME` redirects where it looks
+for one. `config.paths.ensure_curl_config` writes a `_curlrc` containing
+`ssl-no-revoke` and points `CURL_HOME` at it.
+
+**What that relaxes:** the certificate chain is still verified against the
+Windows trust store. Only the revocation *check* is skipped -- which on a
+network whose proxy publishes no CRL had nothing to check against anyway.
+It is curl's own documented remedy for this error.
+
+**Scope:** set on the Neovim session only, so it is inherited by curl
+processes Neovim starts and by nothing else. Your own curl is unaffected. An
+existing `_curlrc` in `%APPDATA%` is copied across rather than shadowed, so
+settings already there keep working, and an explicit `CURL_HOME` you set
+yourself is left alone.
+
 > **`tree-sitter build` does not look for a compiler on PATH.** It compiles
 > through Rust's `cc` crate, which on a `*-windows-msvc` host runs `cl.exe` and
 > nothing else unless `CC` names an alternative. So a working `zig.exe` sitting
