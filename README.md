@@ -229,6 +229,7 @@ nvim/
   lua/config/keymaps.lua    non-plugin key mappings
   lua/config/lazy.lua       bootstraps the plugin manager
   lua/config/lsp.lua        language servers, diagnostics, LSP keymaps
+  lua/plugins/autopairs.lua   bracket and quote closing
   lua/plugins/blink-cmp.lua   completion
   lua/plugins/colorscheme.lua theme
   lua/plugins/lualine.lua     statusline
@@ -329,6 +330,23 @@ Completion, via blink.cmp:
 
 `<CR>` deliberately does **not** accept a completion, so pressing Enter still
 inserts a newline rather than a suggestion you did not want.
+
+### Auto-pairs
+
+Brackets and quotes close as you type: `(` gives `()`, `"` gives `""`, typing
+the closing character where one already sits steps over it instead of inserting
+a second, and backspace on an empty pair removes both halves.
+
+`check_ts` asks treesitter what the cursor is inside, so pairing is suppressed
+in strings and comments -- an apostrophe in `don't` stays a lone apostrophe
+rather than becoming `''`. That depends on parsers being installed; without
+them it degrades to naive pairing rather than breaking.
+
+| Key | Action |
+| --- | --- |
+| `<M-e>` | Wrap the text right of the cursor in a pair (fast wrap) |
+
+Disabled in Telescope and neo-tree prompts, which are not code.
 
 ### Language support
 
