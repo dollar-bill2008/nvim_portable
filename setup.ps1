@@ -595,11 +595,89 @@ function Update-Plugins {
     }
 
     $lazyDir = Join-Path $env:LOCALAPPDATA 'nvim-data\lazy'
-    if (Test-Path $lazyDir) {
-        $count = (Get-ChildItem $lazyDir -Directory).Count
-        Write-Ok "$count plugin directories present"
-    } else {
+    if (-not (Test-Path $lazyDir)) {
         Write-Warn 'no plugins installed'
+        return
+    }
+    Write-Ok "$((Get-ChildItem $lazyDir -Directory).Count) plugin directories present"
+
+    Repair-Plugins -LazyDir $lazyDir
+}
+
+function Repair-Plugins {
+    <#
+        Force every plugin clone to the commit the lockfile names.
+
+        `Lazy! restore` is not enough on its own. It declines to check out over a
+        working tree it considers dirty, and it can leave a clone half switched:
+        on this machine a telescope branch change moved HEAD to the new commit
+        while leaving the old release's files on disk, so the plugin reported the
+        right version and ran the wrong code. The failure surfaced far away, as
+        a nil function call inside a previewer, and survived repeated re-runs of
+        setup because restore kept declining to fix it.
+
+        So verify rather than trust: compare each clone's HEAD against the
+        lockfile and hard-reset the ones that disagree. Plugin directories are
+        managed clones with no user edits in them, so discarding local state
+        there is safe -- and is the only way to recover a half-switched tree.
+    #>
+    param([Parameter(Mandatory)] [string] $LazyDir)
+
+    $lockPath = Join-Path $scriptDir 'nvim\lazy-lock.json'
+    if (-not (Test-Path $lockPath)) {
+        Write-Warn 'no lazy-lock.json; skipping plugin verification'
+        return
+    }
+
+    $lock = Get-Content $lockPath -Raw | ConvertFrom-Json
+    $repaired = 0
+    $checked = 0
+
+    foreach ($entry in $lock.PSObject.Properties) {
+        $name = $entry.Name
+        $want = $entry.Value.commit
+        $branch = $entry.Value.branch
+        $dir = Join-Path $LazyDir $name
+        if (-not (Test-Path (Join-Path $dir '.git'))) { continue }
+        $checked++
+
+        $have = (Invoke-Native 'git' @('-C', $dir, 'rev-parse', 'HEAD')) | Select-Object -First 1
+        $dirty = (Invoke-Native 'git' @('-C', $dir, 'status', '--porcelain'))
+        $dirtyCount = @($dirty | Where-Object { $_ -ne '' }).Count
+
+        if ($have -eq $want -and $dirtyCount -eq 0) { continue }
+
+        if ($have -ne $want) {
+            Write-Info "$name at $($have.Substring(0, 7)), lockfile wants $($want.Substring(0, 7))"
+        } else {
+            Write-Info "$name at the right commit but $dirtyCount file(s) differ on disk"
+        }
+
+        # Fetch first: the pinned commit may not be present locally at all after
+        # a branch change, in which case the reset below would fail.
+        if ($branch) { $null = Invoke-Native 'git' @('-C', $dir, 'fetch', '--quiet', 'origin', $branch) }
+        $null = Invoke-Native 'git' @('-C', $dir, 'reset', '--quiet', '--hard', $want)
+        if ($script:LastNativeExit -ne 0) {
+            $null = Invoke-Native 'git' @('-C', $dir, 'fetch', '--quiet', 'origin')
+            $null = Invoke-Native 'git' @('-C', $dir, 'reset', '--quiet', '--hard', $want)
+        }
+        # Leftovers from the previous version are not tracked by the new one and
+        # would otherwise stay on the runtimepath.
+        $null = Invoke-Native 'git' @('-C', $dir, 'clean', '--quiet', '-fd')
+
+        $now = (Invoke-Native 'git' @('-C', $dir, 'rev-parse', 'HEAD')) | Select-Object -First 1
+        if ($now -eq $want) {
+            Write-Ok "$name repaired to $($want.Substring(0, 7))"
+            $repaired++
+        } else {
+            Write-Warn "$name could not be moved to $($want.Substring(0, 7)); it is at $($now.Substring(0, 7))"
+        }
+    }
+
+    if ($repaired -eq 0) {
+        Write-Ok "all $checked plugin clones match the lockfile"
+    } else {
+        Write-Ok "$repaired of $checked plugin clones repaired"
     }
 }
 
