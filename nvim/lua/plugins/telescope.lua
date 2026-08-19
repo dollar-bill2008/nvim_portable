@@ -9,7 +9,24 @@
 
 return {
     "nvim-telescope/telescope.nvim",
-    branch = "0.1.x",
+
+    -- master, not the "0.1.x" stable branch.
+    --
+    -- 0.1.8 is the last 0.1.x release and dates from May 2024, before
+    -- nvim-treesitter's main-branch rewrite. Its previewer does
+    --     require("nvim-treesitter.configs")
+    --     require("nvim-treesitter.parsers").ft_to_lang(ft)
+    -- both of which are master-branch API that main removed -- there is no
+    -- configs.lua on main at all. The requires are wrapped in pcall, so the
+    -- failure is swallowed and only surfaces later as
+    --     attempt to call field 'ft_to_lang' (a nil value)
+    -- from inside a scheduled callback, the moment a preview tries to
+    -- highlight.
+    --
+    -- master calls vim.treesitter.language.get_lang directly and needs
+    -- nvim-treesitter for nothing. A moving branch is fine here because
+    -- lazy-lock.json pins the exact commit regardless.
+    branch = "master",
     dependencies = { "nvim-lua/plenary.nvim" },
 
     cmd = "Telescope",
