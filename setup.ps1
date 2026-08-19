@@ -690,12 +690,67 @@ if ($Update) {
     Write-Section 'Updating the repo'
     Push-Location $scriptDir
     try {
+        $before = (Invoke-Native 'git' @('rev-parse', 'HEAD')) | Select-Object -First 1
+
         $out = Invoke-Native 'git' @('pull', '--ff-only')
         $out | ForEach-Object { Write-Info $_ }
-        if ($script:LastNativeExit -ne 0) {
-            Write-Warn 'git pull failed; continuing with the working tree as it is'
+        $pullFailed = $script:LastNativeExit -ne 0
+
+        if ($pullFailed) {
+            # Loud, because the consequence is silent: everything below would run
+            # the OLD scripts and report success, so a fix pushed to the remote
+            # would appear not to work rather than appear not to have arrived.
+            Write-Host ''
+            Write-Fail 'git pull failed -- the repo was NOT updated'
+            Write-Host '   Everything below will run the version already on disk, so a fix' -ForegroundColor Yellow
+            Write-Host '   pushed to the remote will look like it did not work.' -ForegroundColor Yellow
+            Write-Host ''
+            Write-Host '   Usual causes and what to check:'
+            Write-Host '     git status         uncommitted changes block --ff-only'
+            Write-Host '     git stash list     stashed work is fine, but check nothing is left in the tree'
+            Write-Host '     git log --oneline origin/main -3    has the branch diverged?'
+            Write-Host ''
+            Write-Host '   To discard local changes and take the remote as-is:'
+            Write-Host '     git stash                       keep them, or'
+            Write-Host '     git reset --hard origin/main    throw them away'
+            Write-Host ''
+        } else {
+            $after = (Invoke-Native 'git' @('rev-parse', 'HEAD')) | Select-Object -First 1
+
+            if ($after -ne $before) {
+                Write-Ok "updated $($before.Substring(0, 7)) -> $($after.Substring(0, 7))"
+
+                # PowerShell reads a script in full before running it, so the code
+                # executing right now is the version from BEFORE the pull. Carrying
+                # on would apply the old logic to the new repo -- which is exactly
+                # how a fix can be pushed, pulled, and still not take effect.
+                #
+                # Re-exec the script now on disk, dropping -Update so it cannot loop.
+                Write-Info 're-running the updated script (this one is the pre-pull version)'
+
+                $forward = New-Object System.Collections.ArrayList
+                foreach ($name in $PSBoundParameters.Keys) {
+                    if ($name -eq 'Update') { continue }
+                    $value = $PSBoundParameters[$name]
+                    if ($value -is [switch]) {
+                        if ($value.IsPresent) { [void]$forward.Add("-$name") }
+                    } else {
+                        [void]$forward.Add("-$name")
+                        [void]$forward.Add([string]$value)
+                    }
+                }
+
+                Pop-Location
+                $self = Join-Path $scriptDir 'setup.ps1'
+                & powershell -NoProfile -ExecutionPolicy Bypass -File $self @forward
+                exit $LASTEXITCODE
+            }
+
+            Write-Ok 'already up to date'
         }
-    } finally { Pop-Location }
+    } finally {
+        if ((Get-Location).Path -eq $scriptDir) { Pop-Location }
+    }
 }
 
 $blockers = Invoke-Preflight
